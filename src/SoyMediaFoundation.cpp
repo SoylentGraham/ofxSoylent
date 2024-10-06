@@ -120,7 +120,8 @@ public:
 		mName					( EnumName ),
 		mSoyFormat				( SoyFormat )
 	{
-		Soy::Assert( IsValid(), "Expected valid enum - or invalid enum is bad" );
+		if ( !IsValid() )
+			throw std::runtime_error("Expected valid enum - or invalid enum is bad" );
 	}
 	TPlatformFormatMap() :
 		mPlatformMajorFormat	( 0 ),
@@ -238,7 +239,7 @@ std::shared_ptr<MediaFoundation::TContext> MediaFoundation::GetContext()
 void MediaFoundation::Shutdown()
 {
 	//	free last context
-	if ( Private::Context.unique() )
+	if ( Private::Context.use_count() == 1 )
 		Private::Context.reset();
 }
 
@@ -464,7 +465,8 @@ std::ostream& operator<<(std::ostream& os, REFGUID guid)
 
 	OLECHAR Buffer[100] = {0};
 	StringFromGUID2( guid, Buffer, std::size(Buffer) );
-	os << Buffer;
+	std::wstring BufferStringw(Buffer);
+	os << Soy::WStringToString(BufferStringw);
 	/*
 	os << std::uppercase;
 	os.width(8);
