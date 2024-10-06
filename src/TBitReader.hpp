@@ -1,7 +1,7 @@
 #pragma once
 
 #include <span>
-#include "array.hpp"
+#include "Array.hpp"
 
 //	my most modern DataReader is in
 //	https://github.com/NewChromantics/PopMp4/blob/main/Source/Mp4Parser.hpp
