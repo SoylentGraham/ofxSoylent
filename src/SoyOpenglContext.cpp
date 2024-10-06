@@ -126,7 +126,8 @@ void Opengl::TContext::Init()
 
 	//	init version
 	auto* VersionString = reinterpret_cast<const char*>( glGetString( GL_VERSION ) );
-	Soy::Assert( VersionString!=nullptr, "Version string invalid. Context not valid? Not on opengl thread?" );
+	if ( !VersionString )
+		throw std::runtime_error("Version string invalid. Context not valid? Not on opengl thread?" );
 	
 	//	iphone says: "OpenGL ES 3.0 Apple A7 GPU - 53.13"
 	mVersion = Soy::TVersion( std::string( VersionString ), "OpenGL ES " );
@@ -171,7 +172,8 @@ void Opengl::TContext::Init()
 
 	
 	auto* DeviceString = reinterpret_cast<const char*>( glGetString( GL_VERSION ) );
-	Soy::Assert( DeviceString!=nullptr, "device string invalid. Context not valid? Not on opengl thread?" );
+	if ( !DeviceString )
+		throw std::runtime_error("device string invalid. Context not valid? Not on opengl thread?");
 	mDeviceName = std::string( DeviceString );
 	
 	//	trigger extensions init early
@@ -672,7 +674,8 @@ Opengl::TRenderTargetFbo::TRenderTargetFbo(const std::string& Name,Opengl::TText
 
 void Opengl::TRenderTargetFbo::Bind()
 {
-	Soy::Assert( mFbo!=nullptr, "FBO expected in render target");
+	if ( !mFbo )
+		throw std::runtime_error("FBO expected in render target");
 	mFbo->Bind();
 }
 

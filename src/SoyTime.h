@@ -25,7 +25,7 @@ namespace Soy
 
 
 
-
+//	deprecate all this for std::chrono
 class SoyTime
 {
 public:
@@ -33,7 +33,7 @@ public:
 		mTime	( InitToNow ? Now().GetTime() : 0 )
 	{
 	}
-	__deprecated_prefix explicit SoyTime(uint64 Time) __deprecated :
+	__deprecated_prefix explicit SoyTime(uint64_t Time) __deprecated :
 		mTime	( Time )
 	{
 	}
@@ -54,7 +54,7 @@ public:
 	bool			FromString(const std::string& String);
 	std::string		ToString() const __deprecated;
 
-	uint64			GetTime() const							{	return mTime;	}
+	uint64_t			GetTime() const							{	return mTime;	}
 	bool			IsValid() const							{	return mTime!=0;	}
 	static SoyTime	Now();				//	time since jan 1 1970, this will inevitably be a 32bit number
 	static SoyTime	UpTime();			//	smaller clock, will loop after ~40 days
@@ -64,10 +64,10 @@ public:
 		ssize_t b = size_cast<ssize_t>( that.GetTime() );
 		return a - b;
 	}
-	uint64			GetNanoSeconds() const					{	return mTime * 1000000;	}
-	void			SetNanoSeconds(uint64 NanoSecs)			{	mTime = NanoSecs / 1000000;	}
-	void			SetMicroSeconds(uint64 MicroSecs)		{	mTime = MicroSecs / 1000;	}
-	uint64			GetMicroSeconds() const					{	return mTime * 1000;	}
+	uint64_t			GetNanoSeconds() const					{	return mTime * 1000000;	}
+	void			SetNanoSeconds(uint64_t NanoSecs)			{	mTime = NanoSecs / 1000000;	}
+	void			SetMicroSeconds(uint64_t MicroSecs)		{	mTime = MicroSecs / 1000;	}
+	uint64_t			GetMicroSeconds() const					{	return mTime * 1000;	}
 	std::chrono::milliseconds	GetMilliSeconds() const		{	return std::chrono::milliseconds(mTime);	}
 	float			GetSecondsf() const						{	return mTime / 1000.f;	}
 
@@ -77,26 +77,28 @@ public:
 	inline bool		operator<=(const SoyTime& Time) const	{	return mTime <= Time.mTime;	}
 	inline bool		operator>(const SoyTime& Time) const	{	return mTime > Time.mTime;	}
 	inline bool		operator>=(const SoyTime& Time) const	{	return mTime >= Time.mTime;	}
-	inline SoyTime&	operator+=(const uint64& Step) 			{	mTime += Step;	return *this;	}
+	inline SoyTime&	operator+=(const uint64_t& Step) 			{	mTime += Step;	return *this;	}
 	inline SoyTime&	operator+=(const SoyTime& Step)			{	mTime += Step.GetTime();	return *this;	}
-	inline SoyTime&	operator-=(const uint64& Step) 			{	mTime -= Step;	return *this;	}
+	inline SoyTime&	operator-=(const uint64_t& Step) 			{	mTime -= Step;	return *this;	}
 	inline SoyTime&	operator-=(const SoyTime& Step)			{	mTime -= Step.GetTime();	return *this;	}
 	inline SoyTime	operator+(const SoyTime& B) const		{	return SoyTime( std::chrono::milliseconds(mTime + B.mTime) );	}
 	inline SoyTime	operator-(const SoyTime& B) const		{	return SoyTime( std::chrono::milliseconds(mTime - B.mTime) );	}
 
 public:	//	gr: temporarily public during android/ios merge
-	uint64	mTime;
+	uint64_t	mTime;
 };
 DECLARE_TYPE_NAME( SoyTime );
 
-/*	<iomanip> crashes the x86 emulator on windows 11 arm and setfill() is from that
+//	<iomanip> crashes the x86 emulator on windows 11 arm and setfill() is from that
+//	gr: time has gone on long enough that now we can just print the number
+//		any code still using SoyTime should migrate to std::chrono
 inline std::ostream& operator<< (std::ostream &out,const SoyTime &in)
 {
-	out << 'T' << std::setfill('0') << std::setw(9) << in.GetTime();
+	out << in.GetTime();
 	return out;
 }
 
-
+/*
 inline std::istream& operator>> (std::istream &in,SoyTime &out)
 {
 	std::string TimeStr;

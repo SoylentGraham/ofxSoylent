@@ -55,7 +55,7 @@ std::ostream& operator<<(std::ostream& out,const TMediaPacket& in)
 {
 	out << "MediaPacket: ";
 	out << " Codec=" << in.mMeta.mCodec;
-	out << " mTimecode=" << in.mTimecode;
+	out << " mTimecode=" << in.mTimecode.GetTime();
 	out << " mIsKeyFrame=" << in.mIsKeyFrame;
 	out << " mEncrypted=" << in.mEncrypted;
 	out << " Size=" << in.mData.GetDataSize();
@@ -334,7 +334,7 @@ void TMediaPacketBuffer::PushPacket(std::shared_ptr<TMediaPacket> Packet,std::fu
 			auto TailTimecode = mPackets.GetBack()->mDecodeTimecode;
 			if ( Packet->mDecodeTimecode < TailTimecode )
 			{
-				std::Debug << "Warning; adding DTS " << Packet->mDecodeTimecode << " out of order (tail=" << TailTimecode << ")" << std::endl;
+				std::Debug << "Warning; adding DTS " << Packet->mDecodeTimecode.GetTime() << " out of order (tail=" << TailTimecode.GetTime() << ")" << std::endl;
 			}
 		}
 		
@@ -362,7 +362,7 @@ void TMediaPacketBuffer::CorrectIncomingPacketTimecode(TMediaPacket& Packet)
 	{
 		Packet.mDecodeTimecode = mLastPacketTimestamp + mAutoTimestampDuration;
 		if ( DebugCorrection )
-			std::Debug << "Corrected incoming packet DECODE timecode; now " << Packet.mTimecode << "(PTS) and " << Packet.mDecodeTimecode << "(DTS)" << std::endl;
+			std::Debug << "Corrected incoming packet DECODE timecode; now " << Packet.mTimecode.GetTime() << "(PTS) and " << Packet.mDecodeTimecode.GetTime() << "(DTS)" << std::endl;
 	}
 
 	//	don't have any timecodes
@@ -370,7 +370,7 @@ void TMediaPacketBuffer::CorrectIncomingPacketTimecode(TMediaPacket& Packet)
 	{
 		Packet.mTimecode = Packet.mDecodeTimecode + DecodeToPresentationOffset;
 		if ( DebugCorrection )
-			std::Debug << "Corrected incoming packet PRESENTATION timecode; now " << Packet.mTimecode << "(PTS) and " << Packet.mDecodeTimecode << "(DTS)" << std::endl;
+			std::Debug << "Corrected incoming packet PRESENTATION timecode; now " << Packet.mTimecode.GetTime() << "(PTS) and " << Packet.mDecodeTimecode.GetTime() << "(DTS)" << std::endl;
 	}
 
 	//	gr: store last DECODE timestamp so this basically forces packets to be ordered by decode timestamps
@@ -495,7 +495,7 @@ void TMediaExtractor::Seek(SoyTime Time,const std::function<void(SoyTime)>& Flus
 	}
 	catch(std::exception& e)
 	{
-		std::Debug << "Exception during Seek(" << Time << ") " << e.what() << std::endl;
+		std::Debug << "Exception during Seek(" << Time.GetTime() << ") " << e.what() << std::endl;
 		//	wake up the thread regardless even if we're reporting an error back
 		//Wake();
 		//throw;
@@ -961,7 +961,8 @@ bool TMediaMuxer::IsStreamsReady(std::shared_ptr<TMediaPacket> Packet)
 
 void TMediaMuxer::SetStreams(const ArrayBridge<TStreamMeta>&& Streams)
 {
-	Soy::Assert( mStreams.IsEmpty(), "Streams already configured");
+	if ( !mStreams.IsEmpty() )
+		throw std::runtime_error("Streams already configured");
 	
 	mStreams.Copy( Streams );
 	SetupStreams( GetArrayBridge(mStreams) );
@@ -1190,8 +1191,10 @@ void TAudioBufferBlock::Append(const TAudioBufferBlock& NewData)
 		*this = NewData;
 		return;
 	}
-	Soy::Assert(mChannels == NewData.mChannels, "TAudioBufferBlock::Append channel size mismatch");
-	Soy::Assert(mFrequency == NewData.mFrequency, "TAudioBufferBlock::Append frequency mismatch");
+	if ( mChannels != NewData.mChannels )
+		throw std::runtime_error("TAudioBufferBlock::Append channel size mismatch");
+	if ( mFrequency != NewData.mFrequency )
+		throw std::runtime_error("TAudioBufferBlock::Append frequency mismatch");
 
 	//	deal with gaps in time with padding
 	auto CurrentEnd = GetEndTime();
@@ -1280,7 +1283,8 @@ void TAudioBufferBlock::SetChannels(size_t ChannelCount)
 
 void TAudioBufferBlock::SetChannels(const ArrayBridge<size_t>&& NewChannelLayout)
 {
-	Soy::Assert( NewChannelLayout.GetSize() != 0, "Tried to change audio block channels to zero" );
+	if ( NewChannelLayout.GetSize() == 0 )
+		throw std::runtime_error("Tried to change audio block channels to zero" );
 	auto NewChannelCount = NewChannelLayout.GetSize();
 	auto OldChannelCount = mChannels;
 
@@ -1326,8 +1330,10 @@ void TAudioBufferManager::PushAudioBuffer(TAudioBufferBlock& AudioData)
 {
 	{
 		//	convert to the right format
-		Soy::Assert( AudioData.mFrequency != 0, "Audio data should not have zero frequency");
-		Soy::Assert( AudioData.mChannels != 0, "Audio data should not have zero channels");
+		if ( AudioData.mFrequency == 0 )
+			throw std::runtime_error("Audio data should not have zero frequency");
+		if ( AudioData.mChannels == 0 )
+			throw std::runtime_error("Audio data should not have zero channels");
 
 		if ( mFormat.mChannels == 0 )
 			mFormat.mChannels = AudioData.mChannels;
@@ -1401,7 +1407,8 @@ void TAudioBufferManager::PopNextAudioData(ArrayBridge<float>&& Data,bool PadDat
 
 bool TAudioBufferManager::GetAudioBuffer(TAudioBufferBlock& FinalOutputBlock,bool VerboseDebug,bool PadOutputTail,bool ClipOutputFront,bool ClipOutputBack,bool CullBuffer)
 {
-	Soy::Assert(FinalOutputBlock.IsValid(), "Need target block for PopAudioBuffer");
+	if ( !FinalOutputBlock.IsValid() )
+		throw std::runtime_error("Need target block for PopAudioBuffer");
 
 	auto StartTime = FinalOutputBlock.GetStartTime();
 	auto EndTime = FinalOutputBlock.GetEndTime();
@@ -1673,7 +1680,8 @@ SoyTime TTextBufferManager::PopBuffer(std::stringstream& Output,SoyTime Time,boo
 		
 		//	return the end-time
 		OutputTime = Block.GetEndTime();
-		Soy::Assert( OutputTime.IsValid(), "Expected output time to be valid");
+		if ( !OutputTime.IsValid() )
+			throw std::runtime_error("Expected output time to be valid");
 	}
 	
 	return OutputTime;
@@ -1709,7 +1717,8 @@ void TTextBufferManager::GetBuffer(std::stringstream& Output,SoyTime& StartTime,
 		StartTime = std::min( StartTime, pBlock->GetStartTime() );
 		EndTime = std::max( EndTime, pBlock->GetEndTime() );
 
-		Soy::Assert( StartTime.IsValid(), "Expected output time to be valid");
+		if ( !StartTime.IsValid() )
+			throw std::runtime_error("Expected output time to be valid");
 	}
 }
 
@@ -2303,7 +2312,8 @@ void TMediaPassThroughEncoder::Write(const Directx::TTexture& Image,SoyTime Time
 
 void TMediaPassThroughEncoder::Write(std::shared_ptr<SoyPixelsImpl> pImage,SoyTime Timecode)
 {
-	Soy::Assert( pImage!=nullptr, "Image expected");
+	if ( !pImage )
+		throw std::runtime_error("Image expected");
 	auto& Image = *pImage;
 	
 	std::shared_ptr<TMediaPacket> pPacket( new TMediaPacket() );
@@ -2408,8 +2418,10 @@ TAudioSplitChannelDecoder::TAudioSplitChannelDecoder(const std::string& ThreadNa
 	mRealOutputAudioBuffer		( RealOutput )
 {
 	//	setup a listener for the real output, modify and push to our "input"
-	Soy::Assert( mRealOutputAudioBuffer != nullptr, "Real output expected");
-	Soy::Assert( mAudioOutput != nullptr, "audio output buffer expected");
+	if ( !mRealOutputAudioBuffer )
+		throw std::runtime_error("Real output expected");
+	if ( !mAudioOutput )
+		throw std::runtime_error("audio output buffer expected");
 	
 
 	auto OnRealBlock = [this,RealChannel](TAudioBufferBlock& Block)

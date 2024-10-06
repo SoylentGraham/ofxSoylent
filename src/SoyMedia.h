@@ -155,7 +155,7 @@ public:
 	std::string			mDescription;		//	other meta that doesnt fit here (eg. unsupported type)
 	bool				mCompressed;
 	float				mFramesPerSecond;	//	0 when not known. in audio this is samples per second (hz)
-	SoyTime				mDuration;
+	std::chrono::milliseconds	mDuration;
 	size_t				mEncodingBitRate;
 	bool				mDecodesOutOfOrder;
 	
@@ -525,10 +525,7 @@ class TMediaPacket
 {
 public:
 	TMediaPacket() :
-		mData			( SoyMedia::GetDefaultHeap() ),
-		mIsKeyFrame		( false ),
-		mEncrypted		( false ),
-		mEof			( false )
+		mData			( SoyMedia::GetDefaultHeap() )
 	{
 	}
 
@@ -547,12 +544,12 @@ public:
 	}
 	
 public:
-	bool					mEof;		//	if EOF, data is optional (see HasData())
+	bool					mEof = false;		//	if EOF, data is optional (see HasData())
 	SoyTime					mTimecode;	//	presentation time
 	SoyTime					mDuration;
 	SoyTime					mDecodeTimecode;
-	bool					mIsKeyFrame;
-	bool					mEncrypted;
+	bool					mIsKeyFrame = false;
+	bool					mEncrypted = false;
 	
 	std::shared_ptr<Platform::TMediaFormat>	mFormat;
 	TStreamMeta				mMeta;			//	format info

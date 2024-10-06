@@ -236,7 +236,8 @@ void Opengl::SetUniform(const TUniform& Uniform,const float3x3& Value)
 {
 	GLsizei ArraySize = 1;
 	static GLboolean Transpose = false;
-	Soy::Assert( ArraySize == Uniform.mArraySize, "Uniform array size mis match" );
+	if ( ArraySize != Uniform.mArraySize )
+		throw std::runtime_error("Uniform array size mis match");
 	glUniformMatrix3fv( static_cast<GLint>(Uniform.mIndex), ArraySize, Transpose, Value.m );
 	Opengl_IsOkay();
 }
