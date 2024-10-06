@@ -213,10 +213,12 @@ void* Soy::TRuntimeLibrary::GetSymbol(const char* Name)
 #if defined(TARGET_IOS)
 	throw Soy::AssertException("No Runtime library support on ios");
 #elif defined(TARGET_OSX) || defined(TARGET_LINUX) || defined(TARGET_ANDROID)
-	Soy::Assert( mHandle!=nullptr, mLibraryName + " library not loaded");
+	if ( !mHandle )
+		throw std::runtime_error( mLibraryName + " library not loaded");
 	return dlsym( mHandle, Name );
 #else
-	Soy::Assert( mHandle!=nullptr, mLibraryName + " library not loaded");
+	if ( !mHandle )
+		throw std::runtime_error( mLibraryName + " library not loaded");
 
 	//	gr: this is for functions, not objects. May need to split this
 	auto Address = GetProcAddress( mHandle, Name );

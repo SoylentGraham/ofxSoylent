@@ -107,7 +107,8 @@ bool TPng::CheckMagic(TArrayReader& ArrayReader)
 	if ( !ArrayReader.ReadCompare( GetArrayBridge(Magic) ) )
 	{
 		//	if we failed here and not at the start of the data, that might be the problem
-		Soy::Assert( ArrayReader.mOffset == 0, "TPng::CheckMagic failed, and data is not at start... could be the issue" );
+		if ( ArrayReader.mOffset != 0 )
+			throw std::runtime_error("TPng::CheckMagic failed, and data is not at start... could be the issue" );
 		return false;
 	}
 	
@@ -375,7 +376,7 @@ void TPng::Private::GetPngData(Array<char>& PngData,const SoyPixelsImpl& Image,T
 		auto CompressionLevelEnum = GetMinizCompressionLevel( CompressionLevel );
 		std::stringstream Debug_TimerName;
 		Debug_TimerName << "Deflate compression; " << Soy::FormatSizeBytes(FilteredPixels.GetDataSize()) << ". Compression level: " << CompressionLevelEnum;
-		ofScopeTimerWarning DeflateCompressTimer( Debug_TimerName.str().c_str(), 3 );
+		Soy::TScopeTimerPrint DeflateCompressTimer( Debug_TimerName.str().c_str(), 3 );
 	
 		//	for tiny data, this isn't enough
 		auto DefAllocated = static_cast<mz_ulong>( 1.2f * FilteredPixels.GetDataSize() );

@@ -6,7 +6,7 @@
 //#include "SoyMath.h"
 //#include "SoyStream.h"
 #include "SoyImage.h"
-#include "magic_enum/include/magic_enum.hpp"
+#include "magic_enum/include/magic_enum/magic_enum.hpp"
 
 
 
@@ -269,34 +269,26 @@ SoyPixelsFormat::Type SoyPixelsFormat::GetFormatFromChannelCount(size_t ChannelC
 
 namespace SoyPixelsFormat
 {
-	const std::map<Type, BufferArray<Type,2>>&	GetMergedFormatMap2();
-	const std::map<Type,BufferArray<Type,3>>&	GetMergedFormatMap3();
+	const std::map<Type,std::array<Type,2>>		GetMergedFormatMap2();
+	const std::map<Type,std::array<Type,3>>	GetMergedFormatMap3();
 }
 
-const std::map<SoyPixelsFormat::Type,BufferArray<SoyPixelsFormat::Type,2>>& SoyPixelsFormat::GetMergedFormatMap2()
+const std::map<SoyPixelsFormat::Type,std::array<SoyPixelsFormat::Type,2>>	SoyPixelsFormat::GetMergedFormatMap2()
 {
-	static std::map<Type,BufferArray<Type,2>> Map;
-
-	if ( Map.empty() )
+	return
 	{
-		Map[Yuv_8_88].PushBackArray( { Luma, ChromaUV_88 } );
-		Map[Yuv_8_8_8].PushBackArray( { Luma, ChromaUV_8_8 } );
-		Map[ChromaUV_8_8].PushBackArray( { ChromaU_8, ChromaV_8 } );
-	}
-
-	return Map;
+		{	Yuv_8_88, { Luma, ChromaUV_88 } },
+		{	Yuv_8_8_8, { Luma, ChromaUV_8_8 } },
+		{	ChromaUV_8_8, { ChromaU_8, ChromaV_8 } },
+	};
 }
 
-const std::map<SoyPixelsFormat::Type, BufferArray<SoyPixelsFormat::Type, 3>>& SoyPixelsFormat::GetMergedFormatMap3()
+const std::map<SoyPixelsFormat::Type,std::array<SoyPixelsFormat::Type,3>> SoyPixelsFormat::GetMergedFormatMap3()
 {
-	static std::map<Type, BufferArray<Type, 3>> Map;
-
-	if (Map.empty())
+	return
 	{
-		Map[Yuv_8_8_8].PushBackArray({ Luma, ChromaU_8,ChromaV_8 });
-	}
-
-	return Map;
+		{	Yuv_8_8_8, { Luma, ChromaU_8,ChromaV_8 } },
+	};
 }
 
 
@@ -309,7 +301,8 @@ void SoyPixelsFormat::GetFormatPlanes(Type Format,ArrayBridge<Type>&& PlaneForma
 		
 		if (it3 != Map3.end())
 		{
-			PlaneFormats.Copy(it3->second);
+			auto MapArray = GetRemoteArray( it3->second.data(), it3->second.size() );
+			PlaneFormats.Copy(MapArray);
 			return;
 		}
 	}
@@ -319,7 +312,8 @@ void SoyPixelsFormat::GetFormatPlanes(Type Format,ArrayBridge<Type>&& PlaneForma
 		auto it2 = Map2.find(Format);
 		if (it2 != Map2.end())
 		{
-			PlaneFormats.Copy(it2->second);
+			auto MapArray = GetRemoteArray( it2->second.data(), it2->second.size() );
+			PlaneFormats.Copy(MapArray);
 			return;
 		}
 	}
@@ -332,7 +326,7 @@ void SoyPixelsFormat::GetFormatPlanes(Type Format,ArrayBridge<Type>&& PlaneForma
 
 SoyPixelsFormat::Type SoyPixelsFormat::GetMergedFormat(SoyPixelsFormat::Type Formata,SoyPixelsFormat::Type Formatb)
 {
-	BufferArray<Type,2> Formatab( { Formata, Formatb } );
+	std::array<Type,2> Formatab( { Formata, Formatb } );
 
 	auto& Map = GetMergedFormatMap2();
 	for ( auto it=Map.begin();	it!=Map.end();	it++ )
@@ -350,7 +344,7 @@ SoyPixelsFormat::Type SoyPixelsFormat::GetMergedFormat(SoyPixelsFormat::Type For
 
 SoyPixelsFormat::Type SoyPixelsFormat::GetMergedFormat(SoyPixelsFormat::Type Formata, SoyPixelsFormat::Type Formatb, SoyPixelsFormat::Type Formatc)
 {
-	BufferArray<Type, 3> Formatabc({ Formata, Formatb, Formatc });
+	std::array<Type, 3> Formatabc({ Formata, Formatb, Formatc });
 
 	auto& Map = GetMergedFormatMap3();
 	for (auto it = Map.begin(); it != Map.end(); it++)
@@ -370,10 +364,10 @@ SoyPixelsFormat::Type SoyPixelsFormat::GetMergedFormat(SoyPixelsFormat::Type For
 //	merge index & palette into Paletteised_8_8
 void SoyPixelsFormat::MakePaletteised(SoyPixelsImpl& PalettisedImage,const SoyPixelsImpl& IndexedImage,const SoyPixelsImpl& Palette,uint8 TransparentIndex)
 {
-	Soy::Assert( IndexedImage.GetFormat() == SoyPixelsFormat::Greyscale, "Expected IndexedImage to be Greyscale" );
-	Soy::Assert( Palette.GetFormat() == SoyPixelsFormat::RGB || Palette.GetFormat() == SoyPixelsFormat::RGBA, "Expected Palette to be RGB or RGBA" );
-	Soy::Assert( Palette.GetHeight() == 1, "Expected palette to have height of 1" );
-	Soy::Assert( Palette.GetWidth() <= ((1<<16)-1), "Expected palette to have max width of 65535" );
+	if ( IndexedImage.GetFormat() != SoyPixelsFormat::Greyscale )	throw std::runtime_error("Expected IndexedImage to be Greyscale" );
+	if ( Palette.GetFormat() != SoyPixelsFormat::RGB && Palette.GetFormat() != SoyPixelsFormat::RGBA )	throw std::runtime_error("Expected Palette to be RGB or RGBA" );
+	if ( Palette.GetHeight() != 1 )	throw std::runtime_error("Expected palette to have height of 1" );
+	if ( Palette.GetWidth() > ((1<<16)-1) )	throw std::runtime_error("Expected palette to have max width of 65535" );
 
 	auto& PaletteArray = Palette.GetPixelsArray();
 	auto& IndexedArray = IndexedImage.GetPixelsArray();
@@ -408,9 +402,12 @@ void SoyPixelsFormat::MakePaletteised(SoyPixelsImpl& PalettisedImage,const SoyPi
 	{
 		Array<std::shared_ptr<SoyPixelsImpl>> Planes;
 		PalettisedImage.SplitPlanes( GetArrayBridge(Planes) );
-		Soy::Assert( Planes.GetSize() == 2, "Palettised image not split into 2");
-		Soy::Assert( Planes[0]->GetMeta() == Palette.GetMeta(), "Palettised image split; palette meta check failed");
-		Soy::Assert( Planes[1]->GetMeta() == IndexedImage.GetMeta(), "Palettised image split; index meta check failed");
+		if ( Planes.GetSize() != 2 )
+			throw std::runtime_error("Palettised image not split into 2");
+		if ( Planes[0]->GetMeta() != Palette.GetMeta() )
+			throw std::runtime_error("Palettised image split; palette meta check failed");
+		if ( Planes[1]->GetMeta() != IndexedImage.GetMeta() )
+			throw std::runtime_error("Palettised image split; index meta check failed");
 	}
 }
 
@@ -431,8 +428,10 @@ void SoyPixelsFormat::GetHeaderPalettised(const ArrayBridge<uint8>&& Data,size_t
 {
 	//	gr: note no distinction between the paletised formats here
 	auto HeaderSize = GetHeaderSize( SoyPixelsFormat::Palettised_RGB_8 );
-	Soy::Assert( HeaderSize == 3, "Header size mismatch");
-	Soy::Assert( Data.GetSize() >= HeaderSize, "SoyPixelsFormat::GetHeaderPalettised Data underrun" );
+	if ( HeaderSize != 3 )
+		throw std::runtime_error("Header size mismatch");
+	if ( Data.GetSize() < HeaderSize )
+		throw std::runtime_error("SoyPixelsFormat::GetHeaderPalettised Data underrun" );
 	
 	PaletteSize = Data[0];
 	PaletteSize |= Data[1] << 8;
@@ -604,6 +603,7 @@ void ConvertFormat_Uvy844_To_Yuv_8_8_8(ArrayInterface<uint8_t>& PixelsArray, Soy
 			LumaArray[i] = l;
 		}
 		
+		/*
 		//	testing writing chroma u/v
 		if ( false )
 		{
@@ -612,6 +612,7 @@ void ConvertFormat_Uvy844_To_Yuv_8_8_8(ArrayInterface<uint8_t>& PixelsArray, Soy
 			uint8_t u = UvyArray[pi+2];
 			LumaArray[i] = u;
 		}
+		*/
 	}
 	
 	//	write chromas
@@ -821,7 +822,7 @@ void ConvertFormat_RGB_To_Yuv_8_8_8(ArrayInterface<uint8>& PixelsArray, SoyPixel
 		auto y = i / ChromaU.GetWidth();
 		auto rgbi = (x * 2) + (y * 2 * Luma.GetWidth());
 		rgbi *= RgbStride;
-		auto r = RgbPixels[rgbi + 0];
+		//auto r = RgbPixels[rgbi + 0];
 		auto g = RgbPixels[rgbi + 1];
 		auto b = RgbPixels[rgbi + 2];
 
@@ -1344,8 +1345,10 @@ void SoyPixelsImpl::Clear(bool Dealloc)
 	auto& Pixels = GetPixelsArray();
 	Pixels.Clear( Dealloc );
 
-	Soy::Assert( GetHeight() == 0, "Height should be 0 after clear");
-	Soy::Assert( !IsValid(), "should be invalid after clear");
+	if ( GetHeight() != 0 )
+		throw std::runtime_error("Height should be 0 after clear");
+	if ( IsValid() )
+		throw std::runtime_error("should be invalid after clear");
 }
 
 
@@ -1446,7 +1449,8 @@ uint8 SoyPixelsImpl::GetPixel(size_t x,size_t y,size_t Channel) const
 vec2x<uint8> SoyPixelsImpl::GetPixel2(size_t x,size_t y) const
 {
 	auto ChannelCount = GetChannels();
-	Soy::Assert( ChannelCount >= 2, "Accessing channel OOB");
+	if ( ChannelCount < 2 )
+		throw std::runtime_error("Accessing channel OOB");
 	auto* Pixel = &GetPixelPtr( x, y, 0 );
 	return vec2x<uint8>( Pixel[0], Pixel[1] );
 }
@@ -1454,7 +1458,8 @@ vec2x<uint8> SoyPixelsImpl::GetPixel2(size_t x,size_t y) const
 vec3x<uint8> SoyPixelsImpl::GetPixel3(size_t x,size_t y) const
 {
 	auto ChannelCount = GetChannels();
-	Soy::Assert( ChannelCount >= 3, "Accessing channel OOB");
+	if ( ChannelCount < 3 )
+		throw std::runtime_error("Accessing channel OOB");
 	auto* Pixel = &GetPixelPtr( x, y, 0 );
 	return vec3x<uint8>( Pixel[0], Pixel[1], Pixel[2] );
 }
@@ -1462,7 +1467,8 @@ vec3x<uint8> SoyPixelsImpl::GetPixel3(size_t x,size_t y) const
 vec4x<uint8> SoyPixelsImpl::GetPixel4(size_t x,size_t y) const
 {
 	auto ChannelCount = GetChannels();
-	Soy::Assert( ChannelCount >= 4, "Accessing channel OOB");
+	if ( ChannelCount < 4 )
+		throw std::runtime_error("Accessing channel OOB");
 	auto* Pixel = &GetPixelPtr( x, y, 0 );
 	return vec4x<uint8>( Pixel[0], Pixel[1], Pixel[2], Pixel[3] );
 }
@@ -1476,7 +1482,8 @@ void SoyPixelsImpl::SetPixel(size_t x,size_t y,size_t Channel,uint8 Component)
 void SoyPixelsImpl::SetPixel(size_t x,size_t y,const vec2x<uint8>& Colour)
 {
 	auto ChannelCount = GetChannels();
-	Soy::Assert( ChannelCount >= 2, "Accessing channel OOB");
+	if ( ChannelCount < 2 )
+		throw std::runtime_error("Accessing channel OOB");
 
 	auto* Pixel = &GetPixelPtr( x, y, 0 );
 	Pixel[0] = Colour.x;
@@ -1486,7 +1493,8 @@ void SoyPixelsImpl::SetPixel(size_t x,size_t y,const vec2x<uint8>& Colour)
 void SoyPixelsImpl::SetPixel(size_t x,size_t y,const vec3x<uint8>& Colour)
 {
 	auto ChannelCount = GetChannels();
-	Soy::Assert( ChannelCount >= 3, "Accessing channel OOB");
+	if ( ChannelCount < 3 )
+		throw std::runtime_error("Accessing channel OOB");
 	
 	auto* Pixel = &GetPixelPtr( x, y, 0 );
 	Pixel[0] = Colour.x;
@@ -1497,7 +1505,8 @@ void SoyPixelsImpl::SetPixel(size_t x,size_t y,const vec3x<uint8>& Colour)
 void SoyPixelsImpl::SetPixel(size_t x,size_t y,const vec4x<uint8>& Colour)
 {
 	auto ChannelCount = GetChannels();
-	Soy::Assert( ChannelCount >= 4, "Accessing channel OOB");
+	if ( ChannelCount < 4 )
+		throw std::runtime_error("Accessing channel OOB");
 
 	auto* Pixel = &GetPixelPtr( x, y, 0 );
 	Pixel[0] = Colour.x;
@@ -1540,7 +1549,7 @@ void SoyPixelsImpl::Clip(size_t Left,size_t Top,size_t Width,size_t Height)
 
 		//	gr: when do channels change??
 		auto NewChannelCount = NewPlane.GetChannels();
-		auto OldHeight = OldPlane.GetHeight();
+		//auto OldHeight = OldPlane.GetHeight();
 		auto OldWidth = OldPlane.GetWidth();
 		auto OldChannelCount = OldPlane.GetChannels();
 
@@ -1558,7 +1567,7 @@ void SoyPixelsImpl::Clip(size_t Left,size_t Top,size_t Width,size_t Height)
 
 		for ( int ny=0;	ny<NewHeight;	ny++ )
 		{
-			int oy = Top + ny;
+			int oy = static_cast<int>(Top) + ny;
 			
 			auto OldLineSize = OldWidth * OldChannelCount;
 			auto NewLineSize = NewWidth * NewChannelCount;
@@ -1581,8 +1590,8 @@ void SoyPixelsImpl::Clip(size_t Left,size_t Top,size_t Width,size_t Height)
 			}
 			*/
 			int nx = 0;
-			int ox = Left;
-			int ox_end = Left + NewWidth;
+			int ox = static_cast<int>(Left);
+			//int ox_end = Left + NewWidth;
 			auto* OldPixel = &OldRow[ox*OldChannelCount];
 			auto* NewPixel = &NewRow[nx*NewChannelCount];
 
@@ -2150,7 +2159,8 @@ void SoyPixelsMeta::GetPlanes(ArrayBridge<SoyPixelsMeta>&& Planes,const ArrayInt
 
 		case SoyPixelsFormat::Palettised_RGB_8:
 		{
-			Soy::Assert( Data!=nullptr, "Cannot split format of Palettised_8_8 without data");
+			if ( !Data )
+				throw std::runtime_error("Cannot split format of Palettised_8_8 without data");
 			size_t PaletteSize = 0;
 			size_t TransparentIndex = 0;
 			SoyPixelsFormat::GetHeaderPalettised( GetArrayBridge(*Data), PaletteSize, TransparentIndex );
@@ -2163,7 +2173,8 @@ void SoyPixelsMeta::GetPlanes(ArrayBridge<SoyPixelsMeta>&& Planes,const ArrayInt
 
 		case SoyPixelsFormat::Palettised_RGBA_8:
 		{
-			Soy::Assert( Data!=nullptr, "Cannot split format of Palettised_8_8 without data");
+			if ( !Data )
+				throw std::runtime_error("Cannot split format of Palettised_8_8 without data");
 			size_t PaletteSize = 0;
 			size_t TransparentIndex = 0;
 			SoyPixelsFormat::GetHeaderPalettised( GetArrayBridge(*Data), PaletteSize, TransparentIndex );

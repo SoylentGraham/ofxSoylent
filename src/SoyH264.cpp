@@ -2,6 +2,47 @@
 
 
 
+H264Profile::Type H264Profile::Validate(uint8_t Value)
+{
+	switch(Value)
+	{
+		case Baseline:
+		case Main:
+		case High:
+		case High10Intra:
+		case High422Intra:
+		case High4:
+		case High5:
+		case High6:
+		case High7:
+		case High8:
+		case High9:
+		case HighMultiviewDepth:
+		case Profile_444:
+			return static_cast<Type>(Value);
+			
+			//	unknown
+		default:break;
+	}
+	
+	std::stringstream Error;
+	Error << "Unknown/Invalid H264Profile value 0x" << std::hex << Value;
+	throw std::runtime_error(Error.str());
+}
+
+template <typename T>
+T SwapEndian(T Value)
+{
+	//	MSVCC
+	//	unsigned long _byteswap_ulong(unsigned long value);
+	//	GCC
+	//uint32_t __builtin_bswap32 (uint32_t x)
+	static_assert(std::is_trivially_copyable<T>::value, "SwapEndian only for POD types");
+	auto* Start = reinterpret_cast<uint8_t*>(&Value);
+	auto* End = Start + sizeof(T);
+	std::reverse(Start, End);
+	return Value;
+}
 
 
 size_t H264::GetNaluLengthSize(SoyMediaFormat::Type Format)
@@ -198,9 +239,11 @@ void H264::DecodeNaluByte(uint8 Byte,H264NaluContent::Type& Content,H264NaluPrio
 	uint8 Zero = (Byte >> 7) & 0x1;
 	uint8 Idc = (Byte >> 5) & 0x3;
 	uint8 Content8 = (Byte >> 0) & (0x1f);
-	Soy::Assert( Zero==0, "Nalu zero bit non-zero");
+	if ( Zero!=0 )
+		throw std::runtime_error("Nalu zero bit non-zero");
 	//	catch bad cases. look out for genuine cases, but if this is zero, NALU delin might have been read wrong
-	Soy::Assert( Content8!=0, "Nalu content type is invalid (zero)");
+	if ( Content8==0 )
+		throw std::runtime_error("Nalu content type is invalid (zero)");
 
 	//	swich this for magic_enum
 	//Priority = H264NaluPriority::Validate( Idc );
@@ -222,35 +265,6 @@ void H264::DecodeNaluByte(SoyMediaFormat::Type Format,const ArrayBridge<uint8>&&
 	DecodeNaluByte( Data[HeaderSize], Content, Priority );
 }
 
-class TBitReader
-{
-public:
-	TBitReader(const ArrayBridge<uint8>& Data) :
-		mData	( Data ),
-		mBitPos	( 0 )
-	{
-	}
-	TBitReader(const ArrayBridge<uint8>&& Data) :
-		mData	( Data ),
-		mBitPos	( 0 )
-	{
-	}
-	
-	void			Read(uint32& Data,size_t BitCount);
-	void			Read(uint64& Data,size_t BitCount);
-	void			Read(uint8& Data,size_t BitCount);
-	size_t			BitPosition() const					{	return mBitPos;	}
-	
-	template<int BYTECOUNT,typename STORAGE>
-	void			ReadBytes(STORAGE& Data,size_t BitCount);
-
-	void			ReadExponentialGolombCode(uint32& Data);
-	void			ReadExponentialGolombCodeSigned(sint32& Data);
-	
-private:
-	const ArrayBridge<uint8>&	mData;
-	size_t				mBitPos;	//	current bit-to-read/write-pos (the tail)
-};
 
 /*
 unsigned int ReadBit()
@@ -264,7 +278,7 @@ unsigned int ReadBit()
 }
 */
 
-void TBitReader::ReadExponentialGolombCode(uint32& Data)
+void TBitReader::ReadExponentialGolombCode(uint32_t& Data)
 {
 	int i = 0;
 	
@@ -303,7 +317,7 @@ void TBitReader::ReadBytes(STORAGE& Data,size_t BitCount)
 	//	gr: definitly correct
 	Data = 0;
 	
-	BufferArray<uint8,BYTECOUNT> Bytes;
+	BufferArray<uint8_t,BYTECOUNT> Bytes;
 	int ComponentBitCount = size_cast<int>(BitCount);
 	while ( ComponentBitCount > 0 )
 	{
@@ -330,12 +344,20 @@ void TBitReader::ReadBytes(STORAGE& Data,size_t BitCount)
 	Data = DataBackwardTest;
 }
 
-void TBitReader::Read(uint32& Data,size_t BitCount)
+bool TBitReader::ReadBit()
+{
+	uint8_t Byte = 0;
+	Read( Byte, 1 );
+	return Byte == 1;
+}
+
+
+void TBitReader::Read(uint32_t& Data,size_t BitCount)
 {
 	//	break up data
 	if ( BitCount <= 8 )
 	{
-		uint8 Data8;
+		uint8_t Data8;
 		Read( Data8, BitCount );
 		Data = Data8;
 		return;
@@ -361,11 +383,11 @@ void TBitReader::Read(uint32& Data,size_t BitCount)
 	
 	std::stringstream Error;
 	Error << __func__ << " not handling bit count > 32; " << BitCount;
-	throw Soy::AssertException( Error.str() );
+	throw std::runtime_error( Error.str() );
 }
 
 
-void TBitReader::Read(uint64& Data,size_t BitCount)
+void TBitReader::Read(uint64_t& Data,size_t BitCount)
 {
 	if ( BitCount <= 8 )
 	{
@@ -393,21 +415,44 @@ void TBitReader::Read(uint64& Data,size_t BitCount)
 	
 	std::stringstream Error;
 	Error << __func__ << " not handling bit count > 32; " << BitCount;
-	throw Soy::AssertException( Error.str() );
+	throw std::runtime_error( Error.str() );
 }
 
-void TBitReader::Read(uint8& Data,size_t BitCount)
+void TBitReader::Read(uint8_t& Data,size_t BitCount)
 {
 	if ( BitCount <= 0 )
 		return;
-	Soy::Assert( BitCount <= 8, "trying to read>8 bits to 8bit value");
+	if ( BitCount > 8 )
+		throw std::runtime_error("trying to read>8 bits to 8bit value");
+	
+	
+	//	if we're on bit [7] and ask for 2 bits, we're going to overflow the byte
+	//	and the code below doesn't handle that.
+	//	quick hack, just read bit by bit
+	//	todo: fix properly
+	{
+		auto CurrentBit = (mBitPos) % 8;
+		auto EndBit = (mBitPos+BitCount-1) % 8;
+		if ( EndBit < CurrentBit )
+		{
+			Data = 0;
+			for ( auto b=0;	b<BitCount;	b++ )
+			{
+				uint8_t BitValue = ReadBit() ? (1<<b) : 0;
+				Data |= BitValue;
+			}
+			return;
+		}
+	}
+	
 	
 	//	current byte
 	auto CurrentByte = mBitPos / 8;
 	auto CurrentBit = mBitPos % 8;
 	
 	//	out of range
-	Soy::Assert( CurrentByte < mData.GetSize(), "Reading byte out of range");
+	if ( CurrentByte >= mData.size() )
+		throw std::runtime_error("Reading byte out of range");
 	
 	//	move along
 	mBitPos += BitCount;
@@ -421,6 +466,47 @@ void TBitReader::Read(uint8& Data,size_t BitCount)
 	Data >>= 8-CurrentBit-BitCount;
 	Data &= (1<<BitCount)-1;
 }
+
+
+//	also see chrome's implementation
+//	https://webrtc.googlesource.com/src/+/d93a51dfaaba5a6f376d2a7f7fa240d3f4083c6b/common_video/h264/sps_parser.cc#112
+void read_scaling_list(TBitReader& b, int* scalingList, int sizeOfScalingList, bool& useDefaultScalingMatrixFlag )
+{
+	// NOTE need to be able to set useDefaultScalingMatrixFlag when reading, hence passing as pointer
+	int lastScale = 8;
+	int nextScale = 8;
+	int delta_scale;
+	for( int j = 0; j < sizeOfScalingList; j++ )
+	{
+		if( nextScale != 0 )
+		{
+			if( false )
+			{
+				nextScale = scalingList[ j ];
+				if (useDefaultScalingMatrixFlag)
+				{
+					nextScale = 0;
+				}
+				delta_scale = (nextScale - lastScale) % 256 ;
+			}
+
+			//delta_scale = bs_read_se(b);
+			b.ReadExponentialGolombCodeSigned(delta_scale);
+
+			if ( true )
+			{
+				nextScale = ( lastScale + delta_scale + 256 ) % 256;
+				useDefaultScalingMatrixFlag = ( j == 0 && nextScale == 0 );
+			}
+		}
+		if( true )
+		{
+			scalingList[ j ] = ( nextScale == 0 ) ? lastScale : nextScale;
+		}
+		lastScale = scalingList[ j ];
+	}
+}
+
 /*
 
 const unsigned char * m_pStart;
@@ -590,35 +676,38 @@ void Parse(const unsigned char * pStart, unsigned short nLen)
 }
 
 */
-H264::TSpsParams H264::ParseSps(const ArrayBridge<uint8>&& Data)
-{
-	return ParseSps( Data );
-}
 
 
-H264::TSpsParams H264::ParseSps(const ArrayBridge<uint8>& Data)
+
+//	gr: I feel like this code is from https://github.com/aizvorski/h264bitstream
+//	todo: re-use that lib instead of this copy+pasta
+//	also reference: the google chrome SPS parser https://webrtc.googlesource.com/src/+/d93a51dfaaba5a6f376d2a7f7fa240d3f4083c6b/common_video/h264/sps_parser.cc#118
+H264::TSpsParams H264::ParseSps(std::span<uint8> Data)
 {
 	//	test against the working version from stackoverflow
 	//Parse( Data.GetArray(), Data.GetDataSize() );
 	
 	TSpsParams Params;
 	
-	auto _DataSkipNaluByte = GetRemoteArray( Data.GetArray()+1, Data.GetDataSize()-1 );
-	auto DataSkipNaluByte = GetArrayBridge( _DataSkipNaluByte );
-	bool SkipNaluByte = false;
-	try
+	//	gr: cleaning this code may have broken something somewhere, but an error
+	//		should make updating code much easier
+	//	read out content type, if it's not sps, we're probably providing data with a Nalu prefix,
+	//	which should be stripped
+	H264NaluContent::Type Content = H264NaluContent::Invalid;
+	H264NaluPriority::Type Priority = H264NaluPriority::Invalid;
+	DecodeNaluByte( Data[0], Content, Priority );
+	if ( Content != H264NaluContent::SequenceParameterSet )
 	{
-		H264NaluContent::Type Content;
-		H264NaluPriority::Type Priority;
-		DecodeNaluByte( Data[0], Content, Priority );
-		SkipNaluByte = true;
+		std::stringstream Error;
+		Error << "ParseSps(x" << Data.size() << ") is not SPS (is " << Content << "). Maybe data is prefixed with nalu";
+		throw std::runtime_error(Error.str());
 	}
-	catch (...)
-	{
-	}
-	TBitReader Reader( SkipNaluByte ? DataSkipNaluByte : Data );
+
+	//	SPS data comes after the content/priority
+	//	https://www.cardinalpeak.com/blog/the-h-264-sequence-parameter-set
+	TBitReader Reader( Data.subspan(1) );
 	
-//	http://stackoverflow.com/questions/12018535/get-the-width-height-of-the-video-from-h-264-nalu
+	//	http://stackoverflow.com/questions/12018535/get-the-width-height-of-the-video-from-h-264-nalu
 	uint8 Param8;
 	Reader.Read( Param8, 8 );
 	Params.mProfile = H264Profile::Validate( Param8 );
@@ -664,6 +753,7 @@ H264::TSpsParams H264::ParseSps(const ArrayBridge<uint8>& Data)
 		
 		if (Params.seq_scaling_matrix_present_flag)
 		{
+			/*
 			int i=0;
 			for ( i = 0; i < 8; i++)
 			{
@@ -678,11 +768,46 @@ H264::TSpsParams H264::ParseSps(const ArrayBridge<uint8>& Data)
 					{
 						if (nextScale != 0)
 						{
-							Soy_AssertTodo();
-							//int delta_scale = ReadSE();
-							//nextScale = (lastScale + delta_scale + 256) % 256;
+							//throw std::runtime_error("todo: parse SPS scaling matrix");
+							sint32 delta_scale = 0;
+							Reader.ReadExponentialGolombCodeSigned(delta_scale);
+							nextScale = (lastScale + delta_scale + 256) % 256;
 						}
 						lastScale = (nextScale == 0) ? lastScale : nextScale;
+					}
+				}
+			}
+			 */
+			//	https://github.com/aizvorski/h264bitstream/blob/ae72f7395f328876199a7e928d3b4a6dc6a7ce14/h264_stream.c#L396C9-L415C10
+			if( Params.seq_scaling_matrix_present_flag )
+			{
+				auto MatrixSize = ((Params.chroma_format_idc != 3) ? 8 : 12);
+				for( int i = 0; i < MatrixSize; i++ )
+				{
+					auto seq_scaling_list_present_flag_i = Reader.ReadBit();
+					if( seq_scaling_list_present_flag_i )
+					{
+						//	gr: warning, not initialised in bitstream repos
+						int ScalingList4x4[6][16];
+						int ScalingList8x8[6][64];
+						if( i < 6 )
+						{
+							
+							//	https://github.com/search?q=repo%3Aaizvorski%2Fh264bitstream%20UseDefaultScalingMatrix4x4Flag&type=code
+							//	gr: this seems to never be initialised in reference code
+							//&( sps->UseDefaultScalingMatrix4x4Flag[ i ] ) );
+							bool UseDefaultScalingFlag = false;
+							read_scaling_list( Reader, ScalingList4x4[ i ], 16, UseDefaultScalingFlag );
+						}
+						else
+						{
+							//	gr: this seems to never be initialised in reference code
+							//&sps->UseDefaultScalingMatrix8x8Flag[ i - 6 ]
+							bool UseDefaultScalingFlag = false;
+							
+							read_scaling_list( Reader, ScalingList8x8[ i - 6 ], 64, UseDefaultScalingFlag );
+						}
+						
 					}
 				}
 			}
@@ -733,8 +858,16 @@ H264::TSpsParams H264::ParseSps(const ArrayBridge<uint8>& Data)
 	Reader.Read( Params.vui_prameters_present_flag, 1 );
 	Reader.Read( Params.rbsp_stop_one_bit, 1 );
 	
-	Params.mWidth = ((Params.pic_width_in_mbs_minus_1 +1)*16) - Params.frame_crop_bottom_offset*2 - Params.frame_crop_top_offset*2;
-	Params.mHeight = ((2 - Params.frame_mbs_only_flag)* (Params.pic_height_in_map_units_minus_1 +1) * 16) - (Params.frame_crop_right_offset * 2) - (Params.frame_crop_left_offset * 2);
+	Params.mWidth = ((Params.pic_width_in_mbs_minus_1 +1)*16);
+	Params.mHeight = ((2 - Params.frame_mbs_only_flag)* (Params.pic_height_in_map_units_minus_1 +1) * 16);
+
+	//	gr: check this...
+	//	- why is it two (always aligned?)
+	//	- is bottom correct given textures start at 0,0=topleft or 0,0=bottomleft
+	Params.mCroppedRect.Left = Params.frame_crop_left_offset * 2;
+	Params.mCroppedRect.Top = Params.frame_crop_top_offset * 2;
+	Params.mCroppedRect.Right = Params.frame_crop_right_offset * 2;
+	Params.mCroppedRect.Bottom = Params.frame_crop_bottom_offset * 2;
 
 	
 	return Params;
@@ -743,7 +876,8 @@ H264::TSpsParams H264::ParseSps(const ArrayBridge<uint8>& Data)
 
 void H264::SetSpsProfile(ArrayBridge<uint8>&& Data,H264Profile::Type Profile)
 {
-	Soy::Assert( Data.GetSize() > 0, "Not enough SPS data");
+	if ( Data.GetSize() == 0 )
+		throw std::runtime_error("Not enough SPS data");
 	auto& ProfileByte = Data[0];
 
 	//	simple byte
@@ -791,41 +925,68 @@ bool H264::IsKeyframe(SoyMediaFormat::Type Format,const ArrayBridge<uint8>&& Dat
 }
 
 
-void H264::ConvertNaluPrefix(ArrayBridge<uint8_t>& Nalu,H264::NaluPrefix::Type NaluPrefixType)
+
+
+void H264::ConvertNaluPrefix(std::vector<uint8_t>& PacketData,H264::NaluPrefix::Type TargetType)
 {
-	//	assuming annexb, this will throw if not
-	auto PrefixLength = H264::GetNaluAnnexBLength(Nalu);
+	//	detect current prefix
+	auto CurrentType = GetNaluPrefix(PacketData);
 	
-	//	quick implementation for now
-	if ( NaluPrefixType != H264::NaluPrefix::ThirtyTwo )
-	Soy_AssertTodo();
+	//	already correct
+	if ( CurrentType == TargetType )
+		return;
+
+	//	gr: if there are multiple packets, we're going to get a mix of prefixes
+	{
+		auto SubPackets = SplitNalu( PacketData );
+		if ( SubPackets.size() > 1 )
+			throw std::runtime_error("todo: handle multiple nalu packets when changing prefix");
+	}
 	
-	auto NewPrefixSize = static_cast<int>(NaluPrefixType);
+	auto CurrentPrefixLength = GetNaluLength(CurrentType);
+	{
+		//	todo: read length from the prefix of 8/16/32 bit length and check this matches the sub-data
+		//	scoped as this span quickly goes out of date when we resize the data
+		auto Data = std::span(PacketData).subspan( CurrentPrefixLength );
+	}
 	
-	//	pad if prefix was 3 bytes
-	if ( PrefixLength == 3 )
-	Nalu.InsertAt(0,0);
-	else if ( PrefixLength != 4)
-	throw Soy::AssertException("Expecting nalu size of 4");
+	auto OverwriteLength32 =[&]()
+	{
+		//	gr: the length needs to be big endian in avcc, so swap.
+		//		the length should also not include the prefix.
+		auto DataSize = PacketData.size() - 4;
+		auto DataSizeBigEndian = SwapEndian<uint32_t>(DataSize);
+		
+		auto* PacketDataSize = reinterpret_cast<uint32_t*>( std::span(PacketData).data() );
+		*PacketDataSize = DataSizeBigEndian;
+	};
 	
-	//	write over prefix
-	uint32_t Size32 = Nalu.GetDataSize() - NewPrefixSize;
-	uint8_t* Size8s = reinterpret_cast<uint8_t*>(&Size32);
-	Nalu[0] = Size8s[3];
-	Nalu[1] = Size8s[2];
-	Nalu[2] = Size8s[1];
-	Nalu[3] = Size8s[0];
+	//	just for simplicity, just do each conversion
+	if ( CurrentType == NaluPrefix::AnnexB001 && TargetType == NaluPrefix::ThirtyTwo )
+	{
+		//	change prefix from 3 to 4 byte
+		PacketData.insert( PacketData.begin(), 0 );
+		OverwriteLength32();
+	}
+	else if ( CurrentType == NaluPrefix::AnnexB0001 && TargetType == NaluPrefix::ThirtyTwo )
+	{
+		OverwriteLength32();
+	}
+	else
+	{
+		throw std::runtime_error("Unhandled nalu conversion combination");
+	}
 }
 
-size_t H264::GetNextNaluOffset(const ArrayBridge<uint8_t>&& Data, size_t StartFrom)
+size_t H264::GetNextNaluOffset(std::span<uint8_t> Data, size_t StartFrom)
 {
-	if ( Data.GetDataSize() < 4 )
-	return 0;
+	if ( Data.size() < 4 )
+		return 0;
 	
 	//	detect 001
-	auto* DataPtr = Data.GetArray();
+	auto* DataPtr = Data.data();
 	
-	for (int i = StartFrom; i < Data.GetDataSize()-3; i++)
+	for ( int i=size_cast<int>(StartFrom);	i< Data.size()-3;	i++ )
 	{
 		if (DataPtr[i + 0] != 0)	continue;
 		if (DataPtr[i + 1] != 0)	continue;
@@ -833,7 +994,7 @@ size_t H264::GetNextNaluOffset(const ArrayBridge<uint8_t>&& Data, size_t StartFr
 		
 		//	check i-1 for 0 in case it's 0001 rather than 001
 		if (DataPtr[i - 1] == 0)
-		return i - 1;
+			return i - 1;
 		
 		return i;
 	}
@@ -841,12 +1002,54 @@ size_t H264::GetNextNaluOffset(const ArrayBridge<uint8_t>&& Data, size_t StartFr
 	return 0;
 }
 
-void H264::SplitNalu(const ArrayBridge<uint8_t>& Data,std::function<void(const ArrayBridge<uint8_t>&&)> OnNalu)
+
+//	returns true if any data changed
+bool H264::StripEmulationPrevention(std::span<uint8_t> Data)
+{
+	bool Changed = false;
+	
+	//	https://stackoverflow.com/a/24890903/355753
+	//	this is when some perfectly valid data contains 0 0 0
+	//	so to prevent this being detected as 001 or 0001 emulation
+	//	prevention is inserted to turn it into 003 or 0030
+	for ( auto i=0;	i<Data.size()-2;	i++ )
+	{
+		auto& a = Data[i+0];
+		auto& b = Data[i+1];
+		auto& c = Data[i+2];
+		
+		//	looking for 003
+		if ( a == 0 && b == 0 && c == 3 )
+		{
+			//	change to 000
+			c = 0;
+			Changed = true;
+		}
+	}
+	
+	return Changed;
+}
+
+std::vector<std::span<uint8_t>> H264::SplitNalu(std::span<uint8_t> Data)
+{
+	std::vector<std::span<uint8_t>> Packets;
+	
+	auto OnFoundPacket = [&](std::span<uint8_t> Packet)
+	{
+		Packets.push_back(Packet);
+	};
+	
+	SplitNalu( Data, OnFoundPacket );
+	return Packets;
+}
+
+
+void H264::SplitNalu(std::span<uint8_t> Data,std::function<void(std::span<uint8_t>)> OnNalu)
 {
 	//	gr: this was happening in android test app, GetSubArray() will throw, so catch it
-	if ( Data.IsEmpty() )
+	if ( Data.empty() )
 	{
-		std::Debug << "Unexpected " << __PRETTY_FUNCTION__ << " Data.Size=" << Data.GetDataSize() << std::endl;
+		std::Debug << "Unexpected " << __PRETTY_FUNCTION__ << " Data.Size=" << Data.size() << std::endl;
 		return;
 	}
 	
@@ -854,18 +1057,18 @@ void H264::SplitNalu(const ArrayBridge<uint8_t>& Data,std::function<void(const A
 	size_t PrevNalu = 0;
 	while (true)
 	{
-		auto PacketData = GetArrayBridge(Data).GetSubArray(PrevNalu);
-		auto NextNalu = H264::GetNextNaluOffset(GetArrayBridge(PacketData));
+		auto PacketData = Data.subspan(PrevNalu);
+		auto NextNalu = H264::GetNextNaluOffset( PacketData );
 		if (NextNalu == 0)
 		{
 			//	everything left
-			OnNalu(GetArrayBridge(PacketData));
+			OnNalu( PacketData );
 			break;
 		}
 		else
 		{
-			auto SubArray = GetArrayBridge(PacketData).GetSubArray(0, NextNalu);
-			OnNalu(GetArrayBridge(SubArray));
+			auto SubArray = PacketData.subspan(0, NextNalu);
+			OnNalu( SubArray );
 			PrevNalu += NextNalu;
 		}
 	}
@@ -873,57 +1076,94 @@ void H264::SplitNalu(const ArrayBridge<uint8_t>& Data,std::function<void(const A
 
 
 
-size_t H264::GetNaluLength(const ArrayBridge<uint8_t>& Packet)
+H264::NaluPrefix::Type H264::GetNaluPrefix(std::span<uint8_t> Data)
 {
 	//	todo: test for u8/u16/u32 size prefix
-	if ( Packet.GetSize() < 4 )
-	return 0;
+	if ( Data.size() < 4 )
+		throw std::runtime_error("Data too small to determine packet size");
 	
-	auto p0 = Packet[0];
-	auto p1 = Packet[1];
-	auto p2 = Packet[2];
-	auto p3 = Packet[3];
+	auto p0 = Data[0];
+	auto p1 = Data[1];
+	auto p2 = Data[2];
+	auto p3 = Data[3];
 	
 	if ( p0 == 0 && p1 == 0 && p2 == 1 )
-	return 3;
+		return H264::NaluPrefix::AnnexB001;
 	
 	if ( p0 == 0 && p1 == 0 && p2 == 0 && p3 == 1)
-	return 4;
+		return H264::NaluPrefix::AnnexB0001;
 	
-	//	couldn't detect, possibly no prefx and it's raw data
-	//	could parse packet type to verify
-	return 0;
+	throw std::runtime_error("todo: detect nalu prefix that's not 001 or 0001");
 }
 
 
-size_t H264::GetNaluAnnexBLength(const ArrayBridge<uint8_t>& Packet)
+size_t H264::GetNaluLength(NaluPrefix::Type Prefix)
 {
-	//	todo: test for u8/u16/u32 size prefix
-	if ( Packet.GetSize() < 4 )
-	throw Soy::AssertException("Packet not long enough for annexb");
-	
-	auto Data0 = Packet[0];
-	auto Data1 = Packet[1];
-	auto Data2 = Packet[2];
-	auto Data3 = Packet[3];
-	if (Data0 != 0 || Data1 != 0)
-	throw Soy::AssertException("Data is not bytestream NALU header (leading zeroes)");
-	if (Data2 == 1)
-	return 3;
-	if (Data2 == 0 && Data3 == 1)
-	return 4;
-	
-	throw Soy::AssertException("Data is not bytestream NALU header (suffix)");
+	switch( Prefix )
+	{
+		case NaluPrefix::AnnexB0001:
+			return 4;
+			
+		case NaluPrefix::AnnexB001:
+		case NaluPrefix::Eight:
+		case NaluPrefix::Sixteen:
+		case NaluPrefix::ThirtyTwo:
+			return static_cast<size_t>( Prefix );
+			
+		default:
+			throw std::runtime_error("Unknown nalu prefix type");
+	}
 }
 
-H264NaluContent::Type H264::GetPacketType(const ArrayBridge<uint8_t>&& Data)
+size_t H264::GetNaluLength(std::span<uint8_t> Data)
 {
-	auto HeaderLength = GetNaluLength(Data);
-	auto TypeAndPriority = Data[HeaderLength];
+	auto Type = GetNaluPrefix(Data);
+	return GetNaluLength( Type );
+}
+
+
+H264NaluContent::Type H264::GetPacketType(std::span<uint8_t> Data,bool ExpectingNalu)
+{
+	auto HeaderLength = 1;
+	auto NaluLength = ExpectingNalu ? GetNaluLength(Data) : 0;
+	if ( Data.size() <= NaluLength + HeaderLength )
+		throw std::runtime_error("Not enough data provided for H264::GetPacketType()");
+
+	auto HeaderStart = NaluLength;
+	auto TypeAndPriority = Data[HeaderStart];
 	auto Type = TypeAndPriority & 0x1f;
-	auto Priority = TypeAndPriority >> 5;
+
+	//	todo: check for bad priority value
+	//auto Priority = TypeAndPriority >> 5;
 	
 	auto TypeEnum = static_cast<H264NaluContent::Type>(Type);
+	
+	
+	//	catch bad packet data
+	switch (TypeEnum)
+	{
+		case H264NaluContent::Invalid:
+		case H264NaluContent::Unspecified:
+		case H264NaluContent::Reserved14:
+		case H264NaluContent::Reserved15:
+		case H264NaluContent::Reserved16:
+		case H264NaluContent::Reserved17:
+		case H264NaluContent::Reserved18:
+		case H264NaluContent::Reserved20:
+		case H264NaluContent::Reserved21:
+		case H264NaluContent::Reserved22:
+		case H264NaluContent::Reserved23:
+		case H264NaluContent::Unspecified30:
+		case H264NaluContent::Unspecified31:
+		{
+			std::stringstream Error;
+			Error << "Decoded invalid H264 content type " << H264NaluContent::ToString(TypeEnum);
+			throw std::runtime_error(Error.str());
+		}
+		default:
+			break;
+	}
+	
 	return TypeEnum;
 }
 
@@ -941,7 +1181,8 @@ void ReformatDeliminator(ArrayBridge<uint8>& Data,
 		{
 			std::stringstream Error;
 			Error << "Extracted NALU length of " << ChunkLength << "/" << Data.GetDataSize();
-			Soy::Assert( ChunkLength <= Data.GetDataSize(), Error.str() );
+			if ( ChunkLength > Data.GetDataSize() )
+				throw std::runtime_error(Error.str());
 		}
 		
 		InsertChunk( ChunkLength, Data, Position );
@@ -950,3 +1191,32 @@ void ReformatDeliminator(ArrayBridge<uint8>& Data,
 }
 
 
+void H264::UnitTest()
+{
+	//	magic_enum wasn't parsing this correctly
+	{
+		const uint8_t ProfileInput = 0xf4;	//	f4 = high
+		auto Profile = H264Profile::Validate(ProfileInput);
+		if ( Profile != H264Profile::High4 )
+			throw std::runtime_error("Failed to parse 0xf4/High profile value");
+	}
+		
+}
+
+bool H264::IsNaluH264(std::span<uint8_t> Data)
+{
+	try
+	{
+		auto NaluType = H264::GetNaluPrefix(Data);
+		auto NaluLength = H264::GetNaluLength(NaluType);
+		auto H264Data = Data.subspan( NaluLength );
+		bool ExpectingNalu = false;
+		auto H264Type = GetPacketType(H264Data,ExpectingNalu);
+		return true;
+	}
+	catch(std::exception& e)
+	{
+		//std::cerr << "Is not nalu+h264 data; " << e.what() << std::endl;
+		return false;
+	}
+}

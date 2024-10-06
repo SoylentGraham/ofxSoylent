@@ -80,6 +80,7 @@ public:
 		mCatchExceptions	( true )
 	{
 	}
+	virtual ~TJob()	{};
 
 	virtual void			Run()=0;		//	throws on error, otherwise assuming success
 	virtual size_t			GetRunDelay()	{	return 0;	}	//	allow defer of a job
@@ -400,7 +401,7 @@ public:
 	SoyThread&			GetThread()				{	return *this;	}
 	const SoyThread&	GetThread() const		{	return *this;	}
 //	std::thread::id		GetThreadId() const		{	return SoyThread::get_id();	}
-//	const std::string&	GetThreadName() const	{	return SoyThread::GetThreadName();	}
+	const std::string&	GetThreadName() const	{	return SoyThread::GetThreadName();	}
 	std::thread::native_handle_type	GetThreadNativeHandle() 	{	return SoyThread::GetThreadNativeHandle();	}
 
 protected:

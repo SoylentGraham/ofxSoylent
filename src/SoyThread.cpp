@@ -68,7 +68,7 @@ void Soy::TSemaphore::Wait(const char* TimerName)
 	
 	if ( TimerName )
 	{
-		ofScopeTimerWarning Timer( TimerName, 0 );
+		Soy::TScopeTimerPrint Timer( TimerName, 0 );
 
 		while ( !IsCompleted() )
 			mConditional.wait_for( Lock, std::chrono::milliseconds(TimeoutMs), IsCompleted );
@@ -163,7 +163,7 @@ void PopWorker::TJobQueue::Flush(TContext& Context,std::function<void(std::chron
 	//	get the smallest delay > 0ms
 	size_t SmallestDelayMs = 0;
 	
-	//ofScopeTimerWarning LockTimer("Waiting for job lock",5,false);
+	//Soy::TScopeTimerPrint LockTimer("Waiting for job lock",5,false);
 	while ( true )
 	{
 		//LockTimer.Start(true);
@@ -215,7 +215,8 @@ void PopWorker::TJobQueue::Flush(TContext& Context,std::function<void(std::chron
 
 void PopWorker::TJobQueue::RunJob(std::shared_ptr<TJob>& Job)
 {
-	Soy::Assert( Job!=nullptr, "Job expected" );
+	if ( !Job )
+		throw std::runtime_error("Job expected");
 
 	if ( Job->mCatchExceptions )
 	{
@@ -265,7 +266,8 @@ void PopWorker::TJobQueue::PushJob(std::function<void()> Function,Soy::TSemaphor
 
 void PopWorker::TJobQueue::PushJobImpl(std::shared_ptr<TJob>& Job,Soy::TSemaphore* Semaphore)
 {
-	Soy::Assert( Job!=nullptr, "Job expected" );
+	if ( !Job )
+		throw std::runtime_error("Job expected");
 	
 	Job->mSemaphore = Semaphore;
 	
@@ -794,7 +796,7 @@ void SoyWorker::Loop()
 		if ( mOnPreIteration )
 			mOnPreIteration();
 		
-#if defined(TARGET_ANDROID)
+#if defined(ENABLE_JNI)
 		Java::FlushThreadLocals();
 #endif
 		
@@ -820,8 +822,8 @@ void SoyWorkerThread::Start(bool ThrowIfAlreadyStarted)
 		Wake();
 		return;
 	}
-	if ( !Soy::Assert( !HasThread(), "Thread already created" ) )
-		return;
+	if ( HasThread() )
+		throw std::runtime_error("Thread already created");
 	
 	SoyThread::Start();
 }

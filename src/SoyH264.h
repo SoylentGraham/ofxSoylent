@@ -1,6 +1,40 @@
 #pragma once
 
 #include "SoyMediaFormat.h"
+#include <span>
+
+
+//	gr: why isn't this in its own file
+class TBitReader
+{
+public:
+	TBitReader(std::span<uint8_t> Data) :
+		mData	( Data )
+	{
+	}
+
+	bool			ReadBit();
+	void			Read(uint32_t& Data,size_t BitCount);
+	void			Read(uint64_t& Data,size_t BitCount);
+	void			Read(uint8_t& Data,size_t BitCount);
+	uint32_t		Read(size_t BitCount)	{	uint32_t Value;	Read(Value,BitCount);	return Value;	}
+	size_t			BitPosition() const					{	return mBitPos;	}
+	
+	template<int BYTECOUNT,typename STORAGE>
+	void			ReadBytes(STORAGE& Data,size_t BitCount);
+
+	void			ReadExponentialGolombCode(uint32_t& Data);
+	void			ReadExponentialGolombCodeSigned(int32_t& Data);
+	
+private:
+	std::span<uint8_t>	mData;
+	
+	//	current bit-to-read/write-pos (the tail).
+	//	This is absolute, so we get the current byte from this value
+	//	it also means this class is limited to (32/64bit max / 8) byte-sized data
+	size_t				mBitPos = 0;
+};
+
 
 
 namespace H264NaluContent
@@ -44,6 +78,8 @@ namespace H264NaluContent
 		Unspecified30				= 30,
 		Unspecified31				= 31,
 	};
+
+	bool		IsValidContent(Type t);	//	return false for reserved, invalid etc
 	
 	DECLARE_SOYENUM(H264NaluContent);
 }
@@ -93,8 +129,13 @@ namespace H264Profile
 		//	more from/for MediaFoundation for MF_MT_MPEG2_PROFILE
 		Profile_444        = 144,
 	};
-	
-	DECLARE_SOYENUM(H264Profile);
+
+	//	gr: too many problems getting magic_enum to work with 0..255 (default is -128...128)
+	//	https://github.com/Neargye/magic_enum/blob/master/doc/limitations.md
+	//	phasing out magic_enum
+	//DECLARE_SOYENUM(H264Profile);
+	//	gr: this will throw if Value==H264Profile::Invalid
+	Type		Validate(uint8_t Value);
 }
 
 
@@ -102,23 +143,30 @@ namespace H264
 {
 	class TSpsParams;
 
+	void UnitTest();		//	throws if any errors
+
+	//	nalu prefix is same in h264 & Hevc
 	namespace NaluPrefix
 	{
 		enum Type
 		{
-			AnnexB		= 0,	//	001 or 0001
-			Eight		= 1,
+			AnnexB001	= 3,	//	byte length
+			AnnexB0001	= 0,	//	magic number
+			
+			Eight		= 1,	//	keep 1,2,4 as the byte-length (for avf input)
 			Sixteen		= 2,
 			ThirtyTwo	= 4
 		};
 	}
-	size_t					GetNaluLength(const ArrayBridge<uint8_t>& Data);
-	inline size_t			GetNaluLength(const ArrayBridge<uint8_t>&& Data) { return GetNaluLength(Data); }
-	size_t					GetNaluAnnexBLength(const ArrayBridge<uint8_t>& Data);
-	inline size_t			GetNaluAnnexBLength(const ArrayBridge<uint8_t>&& Data) { return GetNaluAnnexBLength(Data); }
-	H264NaluContent::Type	GetPacketType(const ArrayBridge<uint8_t>&& Data);
-	void					ConvertNaluPrefix(ArrayBridge<uint8_t>& Nalu,H264::NaluPrefix::Type NaluSize);
-	size_t					GetNextNaluOffset(const ArrayBridge<uint8_t>&& Data, size_t StartFrom = 3);	//	returns 0 if there is no next
+	NaluPrefix::Type		GetNaluPrefix(std::span<uint8_t> Data);
+	size_t					GetNaluLength(NaluPrefix::Type Prefix);
+	size_t					GetNaluLength(std::span<uint8_t> Data);
+	H264NaluContent::Type	GetPacketType(std::span<uint8_t> Data,bool ExpectingNalu=true);
+	void					ConvertNaluPrefix(std::vector<uint8_t>& Nalu,H264::NaluPrefix::Type NaluSize);
+	size_t					GetNextNaluOffset(std::span<uint8_t> Data, size_t StartFrom = 3);	//	returns 0 if there is no next
+
+	//	checks is nalu AND is valid h264 content
+	bool					IsNaluH264(std::span<uint8_t> Data);
 
 	
 	bool		ResolveH264Format(SoyMediaFormat::Type& Format,ArrayBridge<uint8>& Data);
@@ -141,26 +189,42 @@ namespace H264
 	bool		IsKeyframe(H264NaluContent::Type Content) __noexcept;
 	bool		IsKeyframe(SoyMediaFormat::Type Format,const ArrayBridge<uint8>&& Data) __noexcept;
 	
-	TSpsParams	ParseSps(const ArrayBridge<uint8>& Data);
-	TSpsParams	ParseSps(const ArrayBridge<uint8>&& Data);
+	TSpsParams	ParseSps(std::span<uint8> SpsData);
 	
 	//	modify sps!
 	Soy::TVersion	DecodeLevel(uint8 Level8);
 	void			SetSpsProfile(ArrayBridge<uint8>&& Data,H264Profile::Type Profile);
 	void			SetSpsLevel(ArrayBridge<uint8>&& Data,Soy::TVersion Level);
 	
-	void			SplitNalu(const ArrayBridge<uint8_t>& Data,std::function<void(const ArrayBridge<uint8_t>&&)> OnNalu);
-	inline void		SplitNalu(const ArrayBridge<uint8_t>&& Data,std::function<void(const ArrayBridge<uint8_t>&&)> OnNalu)	{	SplitNalu(Data,OnNalu);	};
+	void			SplitNalu(std::span<uint8_t> Data,std::function<void(std::span<uint8_t>)> OnNalu);
+	std::vector<std::span<uint8_t>>	SplitNalu(std::span<uint8_t> Data);
+
+	bool			StripEmulationPrevention(std::span<uint8_t> Data);	//	returns true if any data changed
 }
 
 
 class H264::TSpsParams
 {
 public:
+	//	gr: I think there's a more complete class somewhere
+	class Rect_t
+	{
+	public:
+		size_t	Left = 0;
+		size_t	Top = 0;
+		size_t	Right = 0;
+		size_t	Bottom = 0;
+	};
+	
+public:
 	size_t				mWidth = 0;
 	size_t				mHeight= 0;
+	Rect_t				mCroppedRect;
 	H264Profile::Type	mProfile = H264Profile::Invalid;
 	Soy::TVersion		mLevel;
+	
+	size_t				GetCroppedWidth() const	{	return mWidth - mCroppedRect.Right - mCroppedRect.Left;	}
+	size_t				GetCroppedHeight() const	{	return mHeight - mCroppedRect.Bottom - mCroppedRect.Top;	}
 	
 	
 	uint8		mConstraintFlag[6] = {0};

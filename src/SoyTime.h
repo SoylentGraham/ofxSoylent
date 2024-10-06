@@ -1,7 +1,7 @@
 #pragma once
 
 
-#include <iomanip>
+//#include <iomanip>
 #include "SoyTypes.h"
 #if defined(TARGET_OSX)||defined(TARGET_IOS)||defined(TARGET_PS4)
 #include <sys/time.h>
@@ -16,9 +16,9 @@ namespace Soy
 	namespace Platform
 	{
 #if defined(__OBJC__)
-		SoyTime				GetTime(CMTime Time);
-		CMTime				GetTime(SoyTime Time);
-		SoyTime				GetTime(CFTimeInterval Time);
+		std::chrono::milliseconds	GetTime(CMTime Time);
+		CMTime						GetTime(std::chrono::milliseconds Time);
+		std::chrono::milliseconds	GetTime(CFTimeInterval Time);
 #endif
 	}
 }
@@ -52,7 +52,7 @@ public:
 	}
 
 	bool			FromString(const std::string& String);
-	std::string		ToString() const;
+	std::string		ToString() const __deprecated;
 
 	uint64			GetTime() const							{	return mTime;	}
 	bool			IsValid() const							{	return mTime!=0;	}
@@ -89,7 +89,7 @@ public:	//	gr: temporarily public during android/ios merge
 };
 DECLARE_TYPE_NAME( SoyTime );
 
-
+/*	<iomanip> crashes the x86 emulator on windows 11 arm and setfill() is from that
 inline std::ostream& operator<< (std::ostream &out,const SoyTime &in)
 {
 	out << 'T' << std::setfill('0') << std::setw(9) << in.GetTime();
@@ -110,3 +110,4 @@ inline std::istream& operator>> (std::istream &in,SoyTime &out)
 	return in;
 }
 
+*/
