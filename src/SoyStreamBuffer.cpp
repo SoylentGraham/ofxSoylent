@@ -52,8 +52,8 @@ bool TStreamBuffer::PopAnyMatch(const ArrayInterface<char>&& DelimAny,ArrayBridg
 	std::lock_guard<std::recursive_mutex>	Lock( mLock );
 
 	//	delim is empty??
-	if ( !Soy::Assert( !DelimAny.IsEmpty(), "no deliminators sepecified" ) )
-		return false;
+	if ( DelimAny.IsEmpty() )
+		throw std::runtime_error("no deliminators sepecified");
 	
 	//	search for match
 	for ( int a=0;	a<mData.GetSize();	a++ )
@@ -70,9 +70,7 @@ bool TStreamBuffer::PopAnyMatch(const ArrayInterface<char>&& DelimAny,ArrayBridg
 		assert( OutputLength <= PopLength );
 		if ( !Pop( PopLength, Data ) )
 		{
-			//	unexpected!
-			Soy::Assert(false, "Unexpectedly failed to pop data we thought we had");
-			return false;
+			throw std::runtime_error("Unexpectedly failed to pop data we thought we had");
 		}
 		return true;
 	}
@@ -87,8 +85,8 @@ bool TStreamBuffer::Pop(const ArrayBridge<char>&& Delim,ArrayBridge<char>&& Data
 	std::lock_guard<std::recursive_mutex>	Lock( mLock );
 	
 	//	delim is empty??
-	if ( !Soy::Assert( !Delim.IsEmpty(), "no deliminator sepecified" ) )
-		return false;
+	if ( Delim.IsEmpty() )
+		throw std::runtime_error("no deliminator sepecified");
 	
 	//	search for match
 	auto MaxSearch = size_cast<ssize_t>(mData.GetSize()-Delim.GetSize());
@@ -103,9 +101,7 @@ bool TStreamBuffer::Pop(const ArrayBridge<char>&& Delim,ArrayBridge<char>&& Data
 		//auto OldSize = mData.GetSize();
 		if ( !Pop( PopLength, Data ) )
 		{
-			//	unexpected!
-			Soy::Assert(false, "Unexpectedly failed to pop data we thought we had");
-			return false;
+			throw std::runtime_error("Unexpectedly failed to pop data we thought we had");
 		}
 		
 		//	remove the delim from next search
@@ -305,7 +301,8 @@ ArrayBridgeDef<Array<char>> TStreamBuffer::PeekArray()
 
 bool TStreamBuffer::Peek(ArrayBridge<char>& Data)
 {
-	Soy::Assert( !Data.IsEmpty(), "Shouldn't peek for 0 bytes" );
+	if ( Data.IsEmpty() )
+		throw std::runtime_error("Shouldn't peek for 0 bytes");
 	
 	std::lock_guard<std::recursive_mutex>	Lock( mLock );
 	
@@ -321,8 +318,9 @@ bool TStreamBuffer::Peek(ArrayBridge<char>& Data)
 
 bool TStreamBuffer::Peek(ArrayBridge<uint8>&& Data)
 {
-	Soy::Assert( !Data.IsEmpty(), "Shouldn't peek for 0 bytes" );
-	
+	if ( Data.IsEmpty() )
+		throw std::runtime_error("Shouldn't peek for 0 bytes");
+
 	std::lock_guard<std::recursive_mutex>	Lock( mLock );
 	
 	if ( mData.GetSize() < Data.GetSize() )

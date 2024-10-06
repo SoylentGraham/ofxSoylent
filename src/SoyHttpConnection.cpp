@@ -134,7 +134,8 @@ std::shared_ptr<TSocketWriteThread> THttpConnection::CreateWriteThread(std::shar
 
 void THttpConnection::SendRequest(std::shared_ptr<Http::TRequestProtocol> Request)
 {
-	Soy::Assert( Request != nullptr, "Request expected" );
+	if ( Request == nullptr )
+		throw std::runtime_error("Request expected" );
 #if defined(ENABLE_RTTI)
 	auto pRequest = std::dynamic_pointer_cast<Soy::TWriteProtocol>( Request );
 #else

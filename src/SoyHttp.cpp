@@ -28,7 +28,8 @@ void Http::TCommonProtocol::SetContent(const std::string& Content,const std::str
 {
 	//	re-instate this for when content is read-only
 	//Soy::Assert( mContent.IsEmpty(), "Content already set" );
-	Soy::Assert(mWriteContent == nullptr, "Content has a write-content function set");
+	if ( mWriteContent != nullptr )
+		throw std::runtime_error("Content has a write-content function set");
 
 	mContentMimeType = Mime;
 	mContent.Clear(false);
@@ -48,7 +49,8 @@ void Http::TCommonProtocol::SetContent(const ArrayBridge<char>& Data,SoyMediaFor
 {
 	//	re-instate this for when content is read-only
 	//Soy::Assert( mContent.IsEmpty(), "Content already set" );
-	Soy::Assert( mWriteContent==nullptr, "Content has a write-content function set");
+	if ( mWriteContent!=nullptr )
+		throw std::runtime_error("Content has a write-content function set");
 	
 	mContent.Copy( Data );
 	mContentMimeType = SoyMediaFormat::ToMime( Format );
@@ -65,7 +67,8 @@ void Http::TCommonProtocol::SetContent(const ArrayBridge<char>& Data,const std::
 	}
 	//	re-instate this for when content is read-only
 	//Soy::Assert( mContent.IsEmpty(), "Content already set" );
-	Soy::Assert( mWriteContent==nullptr, "Content has a write-content function set");
+	if ( mWriteContent!=nullptr )
+		throw std::runtime_error("Content has a write-content function set");
 	
 	mContent.Copy( Data );
 	mContentMimeType = MimeFormat;
@@ -95,8 +98,10 @@ void Http::TCommonProtocol::BakeHeaders()
 	
 	if ( mChunkedContent )
 	{
-		Soy::Assert( mContent.IsEmpty(), "Chunked Content, but also has content");
-		Soy::Assert( mWriteContent==nullptr, "Chunked Content, but also has write content func");
+		if ( !mContent.IsEmpty() )
+			throw std::runtime_error("Chunked Content, but also has content");
+		if ( mWriteContent!=nullptr )
+			throw std::runtime_error("Chunked Content, but also has write content func");
 		mHeaders["Transfer-Encoding"] = "chunked";
 
 		//	http://stackoverflow.com/a/26009085/355753
@@ -104,7 +109,8 @@ void Http::TCommonProtocol::BakeHeaders()
 	}
 	else if ( mWriteContent )	//	remove this ambiguity!
 	{
-		Soy::Assert( mContent.IsEmpty(), "WriteContent callback, but also has content");
+		if ( !mContent.IsEmpty() )
+			throw std::runtime_error("WriteContent callback, but also has content");
 		//Soy::Assert( mContentLength==0, "WriteContent callback, but also has content length");
 
 		if ( mContentLength != 0 )
@@ -112,7 +118,8 @@ void Http::TCommonProtocol::BakeHeaders()
 	}
 	else if ( !mContent.IsEmpty() )
 	{
-		Soy::Assert( mContent.GetDataSize() == mContentLength, "Content length doesn't match length of content");
+		if ( mContent.GetDataSize() != mContentLength )
+			throw std::runtime_error("Content length doesn't match length of content");
 		mHeaders["Content-length"] = Soy::StreamToString( std::stringstream()<<mContent.GetDataSize() );
 	}
 	
@@ -268,7 +275,8 @@ void Http::TCommonProtocol::PushHeader(const std::string& Header)
 	if ( Header.empty() )
 	{
 		mHeadersComplete = true;
-		Soy::Assert( HasResponseHeader() || HasRequestHeader(), "Finished http headers but never got response/request header" );
+		if ( !HasResponseHeader() && !HasRequestHeader() )
+			throw std::runtime_error("Finished http headers but never got response/request header" );
 		return;
 	}
 	
@@ -278,8 +286,10 @@ void Http::TCommonProtocol::PushHeader(const std::string& Header)
 		std::smatch Match;
 		if ( std::regex_match( Header, Match, ResponsePattern ) )
 		{
-			Soy::Assert( !HasResponseHeader(), "Already matched response header" );
-			Soy::Assert( !HasRequestHeader(), "Already matched request header" );
+			if ( HasResponseHeader() )
+				throw std::runtime_error("Already matched response header" );
+			if ( HasRequestHeader() )
+				throw std::runtime_error("Already matched request header" );
 			int ResponseCode;
 			Soy::StringToType( ResponseCode, Match[1].str() );
 			mResponseCode = size_cast<size_t>(ResponseCode);
@@ -296,8 +306,10 @@ void Http::TCommonProtocol::PushHeader(const std::string& Header)
 		std::smatch Match;
 		if ( std::regex_match( Header, Match, RequestPattern ) )
 		{
-			Soy::Assert( !HasResponseHeader(), "Already matched response header" );
-			Soy::Assert( !HasRequestHeader(), "Already matched request header" );
+			if ( HasResponseHeader() )
+				throw std::runtime_error("Already matched response header" );
+			if ( HasRequestHeader() )
+				throw std::runtime_error("Already matched request header" );
 			
 			mMethod = Match[1].str();
 			mUrl = Match[2].str();
@@ -311,7 +323,8 @@ void Http::TCommonProtocol::PushHeader(const std::string& Header)
 		}
 	}
 
-	Soy::Assert( HasResponseHeader() || HasRequestHeader(), "Parsing http headers but never got response header" );
+	if ( !HasResponseHeader() && !HasRequestHeader() )
+		throw std::runtime_error("Parsing http headers but never got response header" );
 
 	//	split
 	BufferArray<std::string,2> Parts;
@@ -375,7 +388,8 @@ void Http::TRequestProtocol::Encode(TStreamBuffer& Buffer)
 	if ( mMethod.empty() )
 		mMethod = "GET";
 	
-	Soy::Assert( mMethod=="GET" || mMethod=="POST", "Invalid method for HTTP request" );
+	if ( mMethod!="GET" && mMethod!="POST" )
+		throw std::runtime_error("Invalid method for HTTP request" );
 
 	//	write request header
 	{

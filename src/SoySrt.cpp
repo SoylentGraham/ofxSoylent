@@ -214,9 +214,11 @@ TProtocolState::Type Srt::TFrame::Decode(TStreamBuffer& Buffer)
 
 	try
 	{
-		Soy::Assert( Lines.GetSize() > 0, "Missing index line" );
+		if ( Lines.GetSize() == 0 )
+			throw std::runtime_error("Missing index line" );
 		GetInt( mIndex, Lines[0] );
-		Soy::Assert( Lines.GetSize() > 1, "Time range line" );
+		if ( Lines.GetSize() <= 1 )
+			throw std::runtime_error("Time range line" );
 		DecodeTimeRange( Lines[1], mStart, mEnd );
 	
 		//	all the rest are lines

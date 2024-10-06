@@ -78,8 +78,10 @@ TMediaDecoder::TMediaDecoder(const std::string& ThreadName,std::shared_ptr<TMedi
 	mInput			( InputBuffer ),
 	mPixelOutput	( OutputBuffer )
 {
-	Soy::Assert( mInput!=nullptr, "Expected input");
-	Soy::Assert( mPixelOutput!=nullptr, "Expected output target");
+	if ( mInput==nullptr )
+		throw std::runtime_error("Expected input");
+	if ( mPixelOutput==nullptr )
+		throw std::runtime_error("Expected output target");
 	//	wake when new packets arrive
 	WakeOnEvent( mInput->mOnNewPacket );
 }
@@ -90,8 +92,10 @@ TMediaDecoder::TMediaDecoder(const std::string& ThreadName,std::shared_ptr<TMedi
 	mInput			( InputBuffer ),
 	mAudioOutput	( OutputBuffer )
 {
-	Soy::Assert( mInput!=nullptr, "Expected input");
-	Soy::Assert( mAudioOutput!=nullptr, "Expected output target");
+	if ( !mInput )
+		throw std::runtime_error("Expected input");
+	if ( !mAudioOutput )
+		throw std::runtime_error("Expected output target");
 	//	wake when new packets arrive
 	WakeOnEvent( mInput->mOnNewPacket );
 }
@@ -102,8 +106,10 @@ TMediaDecoder::TMediaDecoder(const std::string& ThreadName,std::shared_ptr<TMedi
 	mInput			( InputBuffer ),
 	mTextOutput		( OutputBuffer )
 {
-	Soy::Assert( mInput!=nullptr, "Expected input");
-	Soy::Assert( mTextOutput!=nullptr, "Expected output target");
+	if ( !mInput )
+		throw std::runtime_error("Expected input");
+	if ( !mTextOutput )
+		throw std::runtime_error("Expected output target");
 	//	wake when new packets arrive
 	WakeOnEvent( mInput->mOnNewPacket );
 }
@@ -135,7 +141,8 @@ bool TMediaDecoder::Iteration()
 	
 	try
 	{
-		Soy::Assert( mInput!=nullptr, "Input missing");
+		if ( !mInput )
+			throw std::runtime_error("Input missing");
 		
 		//	pop next packet
 		auto Packet = mInput->PopPacket(false);
@@ -200,14 +207,16 @@ bool TMediaDecoder::ProcessPacket(std::shared_ptr<TMediaPacket>& Packet)
 
 TPixelBufferManager& TMediaDecoder::GetPixelBufferManager()
 {
-	Soy::Assert( mPixelOutput != nullptr, "MediaEncoder missing pixel buffer" );
+	if ( !mPixelOutput )
+		throw std::runtime_error("MediaEncoder missing pixel buffer" );
 	return *mPixelOutput;
 }
 
 
 TAudioBufferManager& TMediaDecoder::GetAudioBufferManager()
 {
-	Soy::Assert( mAudioOutput != nullptr, "MediaEncoder missing audio buffer" );
+	if ( !mAudioOutput )
+		throw std::runtime_error("MediaEncoder missing audio buffer" );
 	return *mAudioOutput;
 }
 
@@ -280,7 +289,8 @@ void TMediaPacketBuffer::UnPopPacket(std::shared_ptr<TMediaPacket> Packet)
 
 void TMediaPacketBuffer::PushPacket(std::shared_ptr<TMediaPacket> Packet,std::function<bool()> Block)
 {
-	Soy::Assert( Packet != nullptr, "Packet expected");
+	if ( !Packet )
+		throw std::runtime_error("Packet expected");
 	
 	//	pre-push check for flush fence
 	if ( !PrePushBuffer( Packet->GetSortingTimecode() ) )
@@ -702,7 +712,8 @@ void TMediaExtractor::OnStreamsChanged()
 
 void TMediaExtractor::OnPacketExtracted(std::shared_ptr<TMediaPacket>& Packet)
 {
-	Soy::Assert( Packet != nullptr, "Packet expected");
+	if ( !Packet )
+		throw std::runtime_error("Packet expected");
 	OnPacketExtracted( *Packet );
 }
 
@@ -820,7 +831,8 @@ void TMediaExtractor::FlushFrames(SoyTime FlushTime)
 void TMediaEncoder::PushFrame(std::shared_ptr<TMediaPacket>& Packet,std::function<bool(void)> Block)
 {
 	//	gr: check/assign stream index here?
-	Soy::Assert( mOutput!=nullptr, "TMediaEncoder::PushFrame output expected" );
+	if ( !mOutput )
+		throw std::runtime_error("TMediaEncoder::PushFrame output expected" );
 	mOutput->PushPacket( Packet, Block );
 }
 
@@ -833,7 +845,8 @@ TMediaMuxer::TMediaMuxer(std::shared_ptr<TStreamWriter> Output,std::shared_ptr<T
 	mDefferedPackets	( SoyMedia::GetDefaultHeap() )
 {
 	//Soy::Assert( mOutput!=nullptr, "TMpeg2TsMuxer output missing");
-	Soy::Assert( mInput!=nullptr, "TMpeg2TsMuxer input missing");
+	if ( !mInput )
+		throw std::runtime_error("TMpeg2TsMuxer input missing");
 	WakeOnEvent( mInput->mOnNewPacket );
 	
 	Start();

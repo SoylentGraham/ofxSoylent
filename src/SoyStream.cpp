@@ -284,7 +284,8 @@ TFileStreamWriter::TFileStreamWriter(const std::string& Filename) :
 	TStreamWriter	( std::string("TFileStreamWriter " ) + Filename ),
 	mFile			( Filename, std::ios::out|std::ios::binary )
 {
-	Soy::Assert( mFile.is_open(), std::string("Failed to open ")+Filename );
+	if ( !mFile.is_open() )
+		throw std::runtime_error( std::string("Failed to open ")+Filename );
 
 }
 
@@ -324,7 +325,8 @@ void TFileStreamWriter::Write(TStreamBuffer& Data,const std::function<bool()>& B
 			mFile.write( Buffer.GetArray(), Buffer.GetDataSize() );
 			
 			//Soy::Assert( File.fail(), "Error writing to file" );
-			Soy::Assert( !mFile.bad(), "Error writing to file" );
+			if ( mFile.bad() )
+				throw std::runtime_error("Error writing to file");
 
 			OnWriteBytes( Buffer.GetDataSize() );
 		}
@@ -342,7 +344,8 @@ TFileStreamReader::TFileStreamReader(const std::string& Filename) :
 	TStreamReader	( std::string("TFileStreamReader " ) + Filename ),
 	mFile			( Filename, std::ios::in )
 {
-	Soy::Assert( mFile.is_open(), std::string("Failed to open ")+Filename );
+	if ( !mFile.is_open() )
+		throw std::runtime_error( std::string("Failed to open ")+Filename );
 }
 
 TFileStreamReader::~TFileStreamReader()
@@ -397,7 +400,8 @@ TStreamReader_Impl::TStreamReader_Impl(std::shared_ptr<TStreamBuffer> ReadBuffer
 {
 	if ( !mShutdownFunc )
 		mShutdownFunc = []{};
-	Soy::Assert( mReadFunc !=nullptr, "Read function required");
+	if ( !mReadFunc )
+		throw std::runtime_error("Read function required");
 }
 
 TStreamReader_Impl::~TStreamReader_Impl()

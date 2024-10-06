@@ -93,7 +93,8 @@ void Wave::TMeta::WriteHeader(ArrayBridge<char>&& Data,size_t DataSize)
 	//	generate subchunk 1 data
 	Array<char> SubChunk1;
 	GetFormatSubChunkData( GetArrayBridge(SubChunk1) );
-	Soy::Assert( SubChunk1.GetDataSize() == 16, "Expected format subchunk to be 16 bytes long");
+	if ( SubChunk1.GetDataSize() != 16 )
+		throw std::runtime_error("Expected format subchunk to be 16 bytes long");
 
 	//	== NumSamples * NumChannels * BitsPerSample/8
 	//	This is the number of bytes in the data. You can also think of this as the size of the read of the subchunk following this number.
